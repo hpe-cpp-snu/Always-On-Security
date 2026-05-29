@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Virtual environments
+venv/
+.env/
+.venv/
+
+# Environment variables
+.env
+
+# Docker
+*.log
+docker-compose.override.yml
+
+
+
+# SQLite
+*.db
+
+# Pytest
+.pytest_cache/
+
+
+
+# Temporary files
+*.tmp
+*.swp

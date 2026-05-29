@@ -1,0 +1,49 @@
+services:
+
+  controller:
+    build:
+      context: .
+      dockerfile: controller/Dockerfile
+    container_name: controller
+    networks:
+      - hpc_net
+
+  node1:
+    build:
+      context: .
+      dockerfile: node/Dockerfile
+    container_name: node1
+    environment:
+      - NODE_NAME=node1
+    depends_on:
+      - controller
+    networks:
+      - hpc_net
+
+  node2:
+    build:
+      context: .
+      dockerfile: node/Dockerfile
+    container_name: node2
+    environment:
+      - NODE_NAME=node2
+    depends_on:
+      - controller
+    networks:
+      - hpc_net
+
+  node3:
+    build:
+      context: .
+      dockerfile: node/Dockerfile
+    container_name: node3
+    environment:
+      - NODE_NAME=node3
+    depends_on:
+      - controller
+    networks:
+      - hpc_net
+
+networks:
+  hpc_net:
+    external: true
