@@ -9,3 +9,9 @@ data/events.db
 .vscode/
 .idea/
 .code-review-graph/
+
+#Local-data
+data/
+data/controller.offset
+data/events.db-shm
+data/events.db-wal
