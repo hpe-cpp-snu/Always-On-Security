@@ -105,15 +105,7 @@ Go to [http://localhost:5000](http://localhost:5000) to view:
 * Live telemetry timeline.
 * Real-time node statuses (Idle, Busy, Unresponsive, Quarantined) and current risk scores.
 
-### 3. Manual Testing
-You can also manually log into a node container and trigger anomalies:
-```bash
-# Log into node2
-docker exec -it node2 bash
 
-# Run a CPU intensive command to trigger a High CPU alert
-yes > /dev/null
-```
 
 ---
 
