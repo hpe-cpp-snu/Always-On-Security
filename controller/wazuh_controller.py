@@ -1,7 +1,7 @@
 import socket
 import json
 
-WAZUH_MANAGER_IP = "wazuh-manager"  # Change if needed
+WAZUH_MANAGER_IP = "wazuh"
 WAZUH_PORT = 514
 
 

@@ -108,7 +108,7 @@ while True:
     # WAZUH ALERTING
     # -----------------------------
 
-    if current_risk >= 200:
+    if current_risk >= 50:
 
         wazuh.send_alert(node=node, risk_score=current_risk, reasons=reasons)
 
