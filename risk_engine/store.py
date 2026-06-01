@@ -17,6 +17,27 @@ class Store:
 
     def _init_schema(self):
         c = self.conn.cursor()
+
+        # Main events table
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
+                node TEXT NOT NULL,
+                cpu_usage REAL,
+                memory_usage REAL,
+                process_count INTEGER,
+                event_type TEXT,
+                reasons TEXT,
+                risk_score REAL,
+                weighted_score REAL,
+                bucket TEXT,
+                correlated INTEGER DEFAULT 0,
+                matched_rules TEXT
+            )
+        """)
+    
+        # Migration support for older databases
         for col, defn in [
             ("weighted_score", "REAL"),
             ("bucket", "TEXT"),
@@ -26,8 +47,8 @@ class Store:
             try:
                 c.execute(f"ALTER TABLE events ADD COLUMN {col} {defn}")
             except sqlite3.OperationalError:
-                pass  # column exists already
-
+                pass  # column already exists
+    
         c.execute("""
             CREATE TABLE IF NOT EXISTS node_scores (
                 node TEXT PRIMARY KEY,
@@ -35,12 +56,14 @@ class Store:
                 updated_at TEXT NOT NULL
             )
         """)
+    
         c.execute("""
             CREATE TABLE IF NOT EXISTS engine_offset (
                 id INTEGER PRIMARY KEY CHECK (id = 1),
                 last_committed INTEGER NOT NULL DEFAULT 0
             )
         """)
+    
         c.execute("""
             CREATE TABLE IF NOT EXISTS node_status (
                 node TEXT PRIMARY KEY,
@@ -49,7 +72,12 @@ class Store:
                 last_updated TEXT NOT NULL
             )
         """)
-        c.execute("INSERT OR IGNORE INTO engine_offset (id, last_committed) VALUES (1, 0)")
+    
+        c.execute("""
+            INSERT OR IGNORE INTO engine_offset (id, last_committed)
+            VALUES (1, 0)
+        """)
+    
         self.conn.commit()
         log.info("Schema initialised")
 
