@@ -4,6 +4,6 @@ WORKDIR /app
 
 COPY . .
 
-RUN pip install psutil pyzmq
+RUN pip install --no-cache-dir psutil pyzmq
 
 CMD ["python", "agent.py"]

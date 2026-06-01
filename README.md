@@ -1,43 +1,64 @@
-# Always-On Security System
+# Always-On-Security
 
-A distributed security monitoring and automated remediation system built using Docker, Python, ZeroMQ, SQLite, and Flask.
-
-## Overview
-
-This project simulates an Always-On Security Architecture for a distributed computing environment.
-
-The system continuously monitors multiple nodes, detects suspicious activity, calculates risk scores, stores events, and automatically responds to potentially compromised nodes.
-
-### Current Features
-
-* Distributed node simulation using Docker containers
-* Telemetry collection (CPU, memory, process count)
-* Local anomaly detection on each node
-* Event-driven communication using ZeroMQ
-* Centralized controller
-* SQLite-based event storage
-* Cumulative node risk scoring
-* Automated node quarantine/remediation
-* Flask dashboard for monitoring and observability
+A distributed, container-based security monitoring simulation that demonstrates real-time anomaly detection, cumulative risk scoring, automated quarantine, and live dashboard visualization.
 
 ---
 
-## Architecture
+## Architecture Overview
 
-```text
-Node 1 ─┐
-Node 2 ─┼────► Controller ───► SQLite Database
-Node 3 ─┤            │
-Node 4 ─┘            │
-                     ▼
-             Risk Analysis Engine
-                     │
-                     ▼
-           Automated Remediation
-                     │
-                     ▼
-               Flask Dashboard
+The system is built as a multi-container Docker application with the following layers:
+
+1. **Layer 1: Node Agents (`node_agent/`)** — Dual-threaded edge agents that collect system telemetry (CPU, memory, process count) while simulating workload states. Includes a built-in threat simulator for testing.
+2. **Layer 2: Event Bus & Durability (`controller/`)** — A lightweight message forwarder that receives telemetry via ZeroMQ, stamps events with a sequential offset, and persists state atomically for crash recovery.
+3. **Layer 3: Risk Engine (`risk_engine/`)** — A stateless Python microservice that assesses risk. Features context-aware threshold checks, risk decay (self-healing), cross-node correlation, and heartbeat monitoring.
+4. **Layer 4: Auto-Remediation (`risk_engine/router.py`)** — Monitors risk levels and routes decisions into buckets (silent, auto, human, quarantine). Initiates container-based node isolation via the Docker API.
+5. **Layer 5: Visibility & Alerting (`dashboard/` & `wazuh/`)** — A Flask-based web dashboard showing real-time statistics and node states, plus a simulated Wazuh SIEM manager receiving UDP alerts.
+
 ```
+                ┌──────────────────────────────────┐
+                │          RISK ENGINE             │
+                │  YAML Rules & Scoring Pipeline   │
+                │  Heartbeat & Correlation         │
+                │  Remediation Router              │──► Docker API (Quarantine)
+                │  DB Writer                       │──► SQLite
+                └───────────────▲──────────────────┘
+                                │ ZMQ :5556
+                ┌───────────────┴──────────────────┐
+                │          CONTROLLER              │
+                │  Message Forwarder & Offsets     │
+                └───────────────▲──────────────────┘
+                                │ ZMQ :5555
+                ┌───────────────┴──────────────────┐
+                │          NODE AGENTS             │  ×4 (node1 to node4)
+                │  Telemetry & Threat Simulator    │
+                └──────────────────────────────────┘
+
+                ┌───────────────┐  ┌───────────────┐
+                │   DASHBOARD   │  │     WAZUH     │
+                │ localhost:5000│  │ Mock SIEM :514│
+                └───────────────┘  └───────────────┘
+```
+
+---
+
+## Key Features
+
+* **Cumulative Risk Scoring & Self-Healing:** The controller maintains a cumulative risk score for each node. If anomalies cease, the risk score decays slowly back to 0. Accounts for asset criticality.
+* **Heartbeat Monitor:** Detects silent node failures. If a node fails to send telemetry for 30 seconds, it is marked as unresponsive.
+* **Cross-Node Correlation:** Detects coordinated attacks hitting 3+ nodes simultaneously and applies a risk multiplier.
+* **Automated Quarantine:** Once a node's cumulative risk score hits or exceeds `100` (quarantine bucket), the system automatically stops the compromised node's container via the Docker API.
+* **Mock Wazuh Integration:** A simulated Wazuh SIEM manager receives and displays security alerts via UDP when a node is quarantined.
+
+---
+
+## Security Detection Rules
+
+| Rule | Trigger Condition | Risk Increment |
+| :--- | :--- | :--- |
+| **High CPU** | CPU > 10% | `+20` risk points |
+| **High Memory** | Memory > 50% | `+20` risk points |
+| **Too Many Processes** | Process count > 300 | `+25` risk points |
+| **Suspicious Process** | Binary name match (e.g. `nmap`, `hydra`, `nc`, `stress`) | `+40` risk points |
 
 ---
 
@@ -50,7 +71,7 @@ Currently, a node is marked as suspicious if it exhibits one or more of the foll
 * Excessive number of running processes
 * Suspicious process names (e.g., `stress`, `nmap`, `hydra`, `netcat`)
 
-These detections are currently rule-based and serve as a proof-of-concept implementation.
+These detections are rule-based and serve as a proof-of-concept implementation.
 
 ---
 
@@ -59,11 +80,10 @@ These detections are currently rule-based and serve as a proof-of-concept implem
 ```text
 Always-On-Security/
 │
-├── controller/
-│   ├── controller.py
-│   ├── Dockerfile
-│   └── requirements.txt
-│
+├── controller/                 # Layer 2: Message Forwarder
+├── risk_engine/                # Layer 3/4: Central Processing & Remediation
+│   ├── config/                 # YAML configuration (rules, thresholds)
+│   └── ...python modules
 ├── dashboard/
 │   ├── app.py
 │   ├── Dockerfile
@@ -76,7 +96,11 @@ Always-On-Security/
 │   ├── Dockerfile
 │   └── requirements.txt
 │
-├── data/
+├── wazuh/
+│   ├── wazuh.py
+│   └── Dockerfile
+│
+├── data/                       # Shared SQLite Database
 │
 ├── docker-compose.yml
 └── .gitignore
@@ -88,12 +112,17 @@ Always-On-Security/
 
 Install the following:
 
-### Ubuntu / Linux
+### Ubuntu / Linux (Native)
 
 ```bash
 sudo apt update
 sudo apt install git docker.io docker-compose-plugin -y
 ```
+
+### Windows with WSL (Docker Desktop)
+
+Install [Docker Desktop for Windows](https://www.docker.com/products/docker-desktop/) and enable WSL integration in:
+`Settings → Resources → WSL Integration → Enable your distro`
 
 ### Verify Installation
 
@@ -116,26 +145,25 @@ cd Always-On-Security
 
 ## Start the System
 
-Build and start all services:
+Build and start all 9 services:
 
 ```bash
 docker compose up --build
 ```
 
-The following containers should start:
+The following containers will start inside the `security_net` bridge network:
 
-* controller
-* dashboard
-* node1
-* node2
-* node3
-* node4
+* `controller`
+* `risk-engine`
+* `dashboard`
+* `node1`, `node2`, `node3`, `node4`
+* `wazuh`
 
 ---
 
 ## Access Dashboard
 
-Open:
+Open your browser and go to:
 
 ```text
 http://localhost:5000
@@ -144,33 +172,18 @@ http://localhost:5000
 You should see:
 
 * Event statistics
-* Risk information
+* Node risk scores
 * Recent security events
-* System activity
-
----
-
-## Verify Running Containers
-
-```bash
-docker ps
-```
-
-Expected containers:
-
-```text
-controller
-dashboard
-node1
-node2
-node3
-node4
-```
+* System activity feed
 
 ---
 
 ## Generate a Test Alert
 
+**Method 1: Automatic (Built-in Simulator)**
+The node agents include a built-in threat simulator that will automatically trigger every few minutes (`node1` has a higher chance). Simply watch the dashboard to see an attack escalate through 4 stages and end in quarantine.
+
+**Method 2: Manual Trigger**
 Open a shell inside a node:
 
 ```bash
@@ -189,6 +202,8 @@ This should trigger:
 * Risk score increase
 * Event creation
 * Dashboard updates
+* Node quarantine (when risk ≥ 100)
+* Wazuh alert (when node is quarantined)
 
 Stop the process:
 
@@ -200,39 +215,20 @@ CTRL + C
 
 ## Useful Commands
 
-### View Logs
-
 ```bash
-docker compose logs -f
+docker compose logs -f              # Stream all logs
+docker compose logs -f risk-engine  # Stream risk-engine logs only
+docker ps                           # Show status of all containers
+docker compose down                 # Stop and clean up the environment
 ```
 
-### Open Controller Container
+---
 
-```bash
-docker exec -it controller bash
-```
+## Capabilities Demonstrated
 
-### Open Dashboard Container
-
-```bash
-docker exec -it dashboard bash
-```
-
-### Open Node Container
-
-```bash
-docker exec -it node1 bash
-```
-
-### Stop System
-
-```bash
-docker compose down
-```
-
-
-* Distributed monitoring
-* Event collection
-* Risk analysis
-* Automated remediation
-* Dashboard visualization
+* Distributed container monitoring
+* Real-time event collection via ZeroMQ
+* Risk analysis and scoring
+* Automated remediation via Docker API
+* Dashboard visualization with Flask + SQLite
+* Mock SIEM integration (Wazuh)

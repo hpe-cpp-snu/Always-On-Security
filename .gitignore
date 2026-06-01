@@ -1,10 +1,44 @@
 # Python
 __pycache__/
 *.pyc
+*.py[cod]
+*.pyo
+*.pyd
+
+# Virtual environments
+venv/
+.env/
+.venv/
+
+# Environment variables
+.env
 
 # Database
 data/events.db
+data/events.db-shm
+data/events.db-wal
+data/controller.offset
+*.db
+
+# Docker
+*.log
+docker-compose.override.yml
 
 # IDE files
 .vscode/
 .idea/
+.code-review-graph/
+
+# Pytest
+.pytest_cache/
+
+# Temporary files
+*.tmp
+*.swp
+
+# Others
+docker-cheatsheet.md
+Proposed_architecture_diagram.txt
+merge-analysis.md
+# Local data folder
+data/

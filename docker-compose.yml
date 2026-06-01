@@ -2,47 +2,81 @@ services:
   controller:
     build: ./controller
     container_name: controller
+    volumes:
+      - ./data:/data
+    networks:
+      - security_net
 
+  risk-engine:
+    build: ./risk_engine
+    container_name: risk-engine
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./data:/data
+      - ./risk_engine/config:/opt/security/config:ro
+    depends_on:
+      - controller
+    networks:
+      - security_net
 
   dashboard:
     build: ./dashboard
     container_name: dashboard
-
     ports:
       - "5000:5000"
-
     volumes:
       - ./data:/data
     depends_on:
-      - controller
+      - risk-engine
+    networks:
+      - security_net
 
   node1:
     build: ./node_agent
     container_name: node1
+    environment:
+      - NODE_NAME=node1
     depends_on:
       - controller
+    networks:
+      - security_net
 
   node2:
     build: ./node_agent
     container_name: node2
+    environment:
+      - NODE_NAME=node2
     depends_on:
       - controller
+    networks:
+      - security_net
 
   node3:
     build: ./node_agent
     container_name: node3
+    environment:
+      - NODE_NAME=node3
     depends_on:
       - controller
+    networks:
+      - security_net
 
   node4:
     build: ./node_agent
     container_name: node4
+    environment:
+      - NODE_NAME=node4
     depends_on:
       - controller
+    networks:
+      - security_net
 
   wazuh:
     build: ./wazuh
     container_name: wazuh
+    networks:
+      - security_net
+
+networks:
+  security_net:
+    driver: bridge
