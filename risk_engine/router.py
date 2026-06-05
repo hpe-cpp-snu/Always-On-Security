@@ -47,12 +47,14 @@ class Router:
                 f"[AUTO-REMEDIATION] node={node} score={score:.2f} "
                 f"— Ansible stub (Layer 4 deferred)"
             )
+            self._send_wazuh_alert(node, score, reasons, severity="WARNING")
 
         elif bucket == "human":
             log.warning(
                 f"[HUMAN_REVIEW] node={node} score={score:.2f} "
                 f"— Mattermost stub (Layer 5 deferred)"
             )
+            self._send_wazuh_alert(node, score, reasons, severity="HIGH")
 
         elif bucket == "quarantine":
             log.critical(
@@ -73,10 +75,10 @@ class Router:
         except Exception as e:
             log.error(f"Quarantine failed for {node}: {e}")
 
-    def _send_wazuh_alert(self, node: str, risk_score: float, reasons: list) -> None:
+    def _send_wazuh_alert(self, node: str, risk_score: float, reasons: list, severity: str = "CRITICAL") -> None:
         payload = {
             "source": "always-on-security",
-            "severity": "CRITICAL",
+            "severity": severity,
             "node": node,
             "risk_score": risk_score,
             "reasons": reasons,

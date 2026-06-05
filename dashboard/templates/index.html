@@ -24,11 +24,18 @@
         .bucket-auto       { color: #2980b9; font-weight: bold; }
         .bucket-silent     { color: #7f8c8d; }
         .corr-badge { background: #8e44ad; color: white; border-radius: 4px; padding: 1px 5px; font-size: 11px; }
+        .btn-restart { background-color: #c0392b; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: bold; }
+        .btn-restart:hover { background-color: #a93226; }
+        .btn-reset { background-color: #333; color: white; border: none; padding: 10px 16px; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: bold; }
+        .btn-reset:hover { background-color: #000; }
     </style>
 </head>
 <body>
 
-<h1>Always-On Security Dashboard</h1>
+<div style="display: flex; justify-content: space-between; align-items: center;">
+    <h1>Always-On Security Dashboard</h1>
+    <button class="btn-reset" onclick="resetDemo()">Reset Demo</button>
+</div>
 
 <div class="stats">
     <div class="stat">
@@ -61,6 +68,7 @@
             <th>Status</th>
             <th>Risk Score</th>
             <th>Last Updated</th>
+            <th>Actions</th>
         </tr>
         {% for node in nodes %}
         <tr>
@@ -70,6 +78,13 @@
             </td>
             <td>{{ "%.2f"|format(node.risk_score) }}</td>
             <td>{{ node.last_updated }}</td>
+            <td>
+                {% if node.status in ['quarantined', 'unresponsive'] %}
+                    <button class="btn-restart" onclick="restartNode('{{ node.node }}')">Restart Node</button>
+                {% else %}
+                    —
+                {% endif %}
+            </td>
         </tr>
         {% endfor %}
     </table>
@@ -108,5 +123,71 @@
     </table>
 </div>
 
+<div class="card" style="margin-top:24px;">
+    <h2>Mock Wazuh SIEM Alerts</h2>
+    <table>
+        <tr>
+            <th>Timestamp</th>
+            <th>Severity</th>
+            <th>Node</th>
+            <th>Risk Score</th>
+            <th>Reasons</th>
+        </tr>
+        {% for alert in wazuh_logs %}
+        <tr>
+            <td>{{ alert.timestamp }}</td>
+            <td style="font-weight:bold; color: {{ '#c0392b' if alert.severity == 'CRITICAL' else ('#e67e22' if alert.severity == 'HIGH' else '#2980b9') }}">
+                {{ alert.severity }}
+            </td>
+            <td>{{ alert.node }}</td>
+            <td>{{ "%.2f"|format(alert.risk_score) }}</td>
+            <td style="font-size:11px; color:#555;">{{ alert.reasons }}</td>
+        </tr>
+        {% endfor %}
+        {% if not wazuh_logs %}
+        <tr>
+            <td colspan="5" style="text-align: center; color: #7f8c8d; font-style: italic;">No Wazuh alerts logged yet...</td>
+        </tr>
+        {% endif %}
+    </table>
+</div>
+
+<script>
+function restartNode(nodeName) {
+    if(!confirm('Are you sure you want to restart and unquarantine ' + nodeName + '?')) return;
+    
+    fetch('/api/nodes/' + nodeName + '/restart', {
+        method: 'POST'
+    })
+    .then(response => response.json())
+    .then(data => {
+        if(data.success) {
+            alert(nodeName + ' successfully restarted!');
+            window.location.reload();
+        } else {
+            alert('Error: ' + data.error);
+        }
+    })
+    .catch(error => {
+        alert('Network error: ' + error);
+    });
+}
+
+function resetDemo() {
+    if(!confirm('Are you sure you want to completely wipe the database and restart all nodes? This will reset the demo to a clean state!')) return;
+    
+    fetch('/api/reset', { method: 'POST' })
+    .then(response => response.json())
+    .then(data => {
+        if(data.success) {
+            alert('Environment successfully reset!');
+            window.location.reload();
+        } else {
+            alert('Error: ' + data.error);
+        }
+    })
+    .catch(error => alert('Network error: ' + error));
+}
+</script>
 </body>
 </html>

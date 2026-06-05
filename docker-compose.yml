@@ -25,6 +25,7 @@ services:
     ports:
       - "5000:5000"
     volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
       - ./data:/data
     depends_on:
       - risk-engine
@@ -74,6 +75,8 @@ services:
   wazuh:
     build: ./wazuh
     container_name: wazuh
+    volumes:
+      - ./data:/data
     networks:
       - security_net
 
