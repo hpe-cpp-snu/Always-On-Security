@@ -6,7 +6,7 @@ services:
       - HMAC_SECRET=${HMAC_SECRET}
       - ALLOWLIST_PATH=/opt/security/config/allowlist.yaml
     volumes:
-      - ./data:/data
+      - shared_data:/data
       - ./risk_engine/config:/opt/security/config:ro
     networks:
       - security_net
@@ -18,7 +18,7 @@ services:
       - ALLOWLIST_PATH=/opt/security/config/allowlist.yaml
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - ./data:/data
+      - shared_data:/data
       - ./risk_engine/config:/opt/security/config:ro
     depends_on:
       - controller
@@ -31,7 +31,7 @@ services:
     ports:
       - "5001:5000"
     volumes:
-      - ./data:/data
+      - shared_data:/data
     depends_on:
       - risk-engine
     networks:
@@ -105,10 +105,13 @@ services:
     build: ./wazuh
     container_name: wazuh
     volumes:
-      - ./data:/data
+      - shared_data:/data
     networks:
       - security_net
 
 networks:
   security_net:
     driver: bridge
+
+volumes:
+  shared_data:
