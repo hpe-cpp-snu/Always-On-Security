@@ -82,6 +82,11 @@ class Store:
                 "privilege_escalation_attempts",
                 "INTEGER DEFAULT 0",
             ),
+            ("file_path", "TEXT"),
+            ("fim_event_type", "TEXT"),
+            ("sha256", "TEXT"),
+            ("file_size", "INTEGER"),
+            ("permissions", "TEXT"),
         ]:
 
             try:
@@ -224,6 +229,7 @@ class Store:
 
         ts = event.get("_received_at", datetime.now(timezone.utc).isoformat())
 
+        fim = event.get("fim_details") or {}
         c = self.conn.cursor()
 
         c.execute(
@@ -253,11 +259,12 @@ class Store:
 
                 correlated,
 
-                matched_rules
+                matched_rules,
+                file_path, fim_event_type, sha256, file_size, permissions
 
             )
             VALUES (
-                ?, ?, ?, ?, ?,
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                 ?, ?,
                 ?, ?,
                 ?, ?,
@@ -293,6 +300,11 @@ class Store:
                 decision.bucket,
                 1 if decision.correlated else 0,
                 json.dumps([r[0] for r in decision.matched_rules]),
+                fim.get("file_path"),
+                fim.get("fim_event_type"),
+                fim.get("current_state", {}).get("sha256") if fim.get("current_state") else None,
+                fim.get("current_state", {}).get("file_size") if fim.get("current_state") else None,
+                fim.get("current_state", {}).get("permissions") if fim.get("current_state") else None,
             ),
         )
 

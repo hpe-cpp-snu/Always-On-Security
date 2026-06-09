@@ -33,3 +33,33 @@
   blast_radius: 85
   match:
     reasons_contains: "Privilege escalation attempts detected"
+
+- id: FIM_FILE_CREATED
+  match:
+    reasons_contains: "FIM Created"
+  severity: 40
+  blast_radius: 35
+
+- id: FIM_FILE_MODIFIED
+  match:
+    reasons_contains: "FIM Modified"
+  severity: 50
+  blast_radius: 40
+
+- id: FIM_PERMISSION_CHANGED
+  match:
+    reasons_contains: "FIM Permission"
+  severity: 60
+  blast_radius: 45
+
+- id: FIM_FILE_DELETED
+  match:
+    reasons_contains: "FIM Deleted"
+  severity: 70
+  blast_radius: 50
+
+- id: FIM_BASELINE_TAMPERING
+  match:
+    reasons_contains: "tampering"
+  severity: 90
+  blast_radius: 60

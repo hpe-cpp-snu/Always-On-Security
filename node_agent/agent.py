@@ -1,8 +1,9 @@
 """
 Always-On Security — Node Agent
-Dual-threaded agent:
+Dual-threaded agent + FIM watcher thread:
   1. Telemetry Monitor — collects system metrics, detects anomalies, sends security events
   2. Job Worker — receives job assignments, marks node as busy/idle for context-aware detection
+  3. FIM Monitor — watches configured files/directories using Linux inotify and hashes changes
 
 Includes:
   - CPU anomaly simulation
@@ -20,6 +21,9 @@ import socket
 import threading
 import random
 import psutil
+import hashlib
+import yaml
+from inotify_simple import INotify, flags
 
 # ----------------------------------
 # IDENTITY
@@ -77,6 +81,85 @@ current_job = {
 }
 
 job_lock = threading.Lock()
+
+# ----------------------------------
+# FIM CONFIGURATION & BASELINES
+# ----------------------------------
+
+baseline = {}
+fim_config = {}
+
+# Paths to watch
+critical_files = []
+watched_directories = []
+
+def load_fim_config():
+    global critical_files, watched_directories, fim_config
+    config_path = os.path.join(os.path.dirname(__file__), "fim_config.yaml")
+    try:
+        with open(config_path) as f:
+            fim_config = yaml.safe_load(f) or {}
+    except Exception as e:
+        print(f"[{NODE_NAME}] Failed to load FIM config: {e}")
+        fim_config = {}
+
+    critical_files = fim_config.get("critical_files", [])
+    watched_directories = fim_config.get("watched_directories", [])
+
+    # Ensure critical directories exist
+    for d in watched_directories:
+        os.makedirs(d, exist_ok=True)
+
+    # Ensure critical files exist so inotify can watch them
+    for path in critical_files:
+        parent = os.path.dirname(path)
+        os.makedirs(parent, exist_ok=True)
+        if not os.path.exists(path):
+            try:
+                with open(path, "w") as f:
+                    f.write("# Always-On Security Monitored File\n")
+                print(f"[{NODE_NAME}] Created missing critical file: {path}")
+            except Exception as e:
+                print(f"[{NODE_NAME}] Failed to pre-create {path}: {e}")
+
+def get_file_metadata(path):
+    try:
+        stat = os.stat(path)
+        size = stat.st_size
+        perms = oct(stat.st_mode & 0o777)  # e.g., '0o644'
+        owner = f"{stat.st_uid}:{stat.st_gid}"
+
+        # Check if we should hash the file
+        should_hash = False
+        if path in critical_files:
+            should_hash = True
+        else:
+            for d in watched_directories:
+                if path.startswith(d):
+                    # We compute hash for normal files inside watched directories unless too big
+                    should_hash = True
+                    break
+
+        sha256 = ""
+        if should_hash and os.path.isfile(path) and size < 50 * 1024 * 1024:
+            hasher = hashlib.sha256()
+            with open(path, "rb") as f:
+                for chunk in iter(lambda: f.read(4096), b""):
+                    hasher.update(chunk)
+            sha256 = hasher.hexdigest()
+
+        return {
+            "sha256": sha256,
+            "size": size,
+            "permissions": perms,
+            "owner_group": owner,
+            "exists": True
+        }
+    except FileNotFoundError:
+        return {"exists": False}
+    except Exception as e:
+        print(f"[{NODE_NAME}] Error reading metadata for {path}: {e}")
+        return {"exists": False}
 
 # ==================================
 # THREAD 1: JOB WORKER
@@ -191,12 +274,33 @@ def telemetry_monitor():
             # Stage 2
             if attack_stage >= 2:
                 memory = 88.0
-
-            # Stage 3
+                # SIMULATE FILE MODIFICATION on /etc/hosts
+                try:
+                    with open('/etc/hosts', 'a') as f:
+                        f.write(f"\n127.0.0.1 simulated-malicious-{attack_stage}.com\n")
+                    print(f"[{NODE_NAME}] [SIMULATOR] Appended host mapping to /etc/hosts")
+                except Exception as e:
+                    print(f"[{NODE_NAME}] [SIMULATOR] Failed to modify /etc/hosts: {e}")
             if attack_stage >= 3:
-                process_count = 310
+                process_count = 310  # Triggers PROCESS_COUNT rule
                 failed_login_count = random.randint(8, 20)
 
+                # SIMULATE PERMISSION CHANGE on /etc/passwd
+                try:
+                    os.chmod('/etc/passwd', 0o777)
+                    print(f"[{NODE_NAME}] [SIMULATOR] Changed /etc/passwd permissions to 0777")
+                except Exception as e:
+                    print(f"[{NODE_NAME}] [SIMULATOR] Failed to chmod /etc/passwd: {e}")
+            if attack_stage >= 4:
+                # SIMULATE FILE DELETION on /etc/ssh/sshd_config
+                try:
+                    if os.path.exists('/etc/ssh/sshd_config'):
+                        os.remove('/etc/ssh/sshd_config')
+                        print(f"[{NODE_NAME}] [SIMULATOR] Deleted /etc/ssh/sshd_config")
+                except Exception as e:
+                    print(f"[{NODE_NAME}] [SIMULATOR] Failed to delete /etc/ssh/sshd_config: {e}")
+
+        
             # Stage 5
             if attack_stage >= 5:
                 privilege_escalation_attempts = random.randint(1, 5)
@@ -204,6 +308,8 @@ def telemetry_monitor():
         # ---------------------------
         # DEFAULT EVENT STATE
         # ---------------------------
+       
+
 
         event_type = "NORMAL"
         reasons = []
@@ -334,6 +440,167 @@ def telemetry_monitor():
 
         time.sleep(5)
 
+# ==================================
+# THREAD 3: FILE INTEGRITY MONITOR (FIM)
+# ==================================
+
+def fim_monitor():
+    """
+    Watches files and directories using Linux inotify (inotify-simple)
+    for creations, modifications, deletions, and permission changes.
+    Generates and transmits real-time FIM events to the controller.
+    """
+    global baseline
+
+    # Establish connection to controller
+    sender = context.socket(zmq.PUSH)
+    sender.connect("tcp://controller:5555")
+
+    # Initialize baselines for critical files
+    for path in critical_files:
+        meta = get_file_metadata(path)
+        if meta["exists"]:
+            baseline[path] = meta
+            print(f"[{NODE_NAME}] FIM baseline initialized: {path} -> {meta['sha256'][:8] or 'meta-only'}")
+
+    # Initialize baselines for watched directories recursively
+    for d in watched_directories:
+        for root, _, files in os.walk(d):
+            for file in files:
+                full_path = os.path.join(root, file)
+                meta = get_file_metadata(full_path)
+                if meta["exists"]:
+                    baseline[full_path] = meta
+                    print(f"[{NODE_NAME}] FIM baseline initialized: {full_path} -> {meta['sha256'][:8] or 'meta-only'}")
+
+    # Set up inotify watches
+    inotify = INotify()
+    watch_descriptors = {}
+
+    # Gather distinct directories to watch
+    dirs_to_watch = set(watched_directories)
+    for path in critical_files:
+        parent = os.path.dirname(path)
+        if os.path.exists(parent):
+            dirs_to_watch.add(parent)
+
+    mask = (flags.MODIFY | flags.CREATE | flags.DELETE | 
+            flags.ATTRIB | flags.MOVED_TO | flags.MOVED_FROM)
+
+    for d in dirs_to_watch:
+        try:
+            wd = inotify.add_watch(d, mask)
+            watch_descriptors[wd] = d
+            print(f"[{NODE_NAME}] FIM registering watch on: {d}")
+        except Exception as e:
+            print(f"[{NODE_NAME}] FIM watch failed for {d}: {e}")
+
+    print(f"[{NODE_NAME}] FIM monitor started.")
+
+    while True:
+        try:
+            # Block until event occurs
+            events = inotify.read()
+            for event in events:
+                parent_dir = watch_descriptors.get(event.wd)
+                if not parent_dir or not event.name:
+                    continue
+
+                full_path = os.path.join(parent_dir, event.name)
+
+                # Check if file path is monitored
+                is_monitored = False
+                if full_path in critical_files:
+                    is_monitored = True
+                else:
+                    for d in watched_directories:
+                        if full_path.startswith(d):
+                            is_monitored = True
+                            break
+
+                if not is_monitored:
+                    continue
+
+                # Short delay to allow write completion (debouncing)
+                time.sleep(0.2)
+
+                curr = get_file_metadata(full_path)
+                prev = baseline.get(full_path)
+
+                fim_event_type = None
+                reasons = []
+
+                # Evaluate flags
+                is_delete = event.mask & (flags.DELETE | flags.MOVED_FROM)
+                is_create = event.mask & (flags.CREATE | flags.MOVED_TO)
+
+                # Deletion case
+                if is_delete or (prev and not curr["exists"]):
+                    fim_event_type = "FIM_FILE_DELETED"
+                    reasons.append(f"deleted")
+                    baseline.pop(full_path, None)
+
+                # Creation case
+                elif not prev and curr["exists"]:
+                    fim_event_type = "FIM_FILE_CREATED"
+                    reasons.append(f"created")
+                    baseline[full_path] = curr
+
+                # Modification case
+                elif prev and curr["exists"]:
+                    changes = []
+                    # Check SHA256 (for files that are hashed)
+                    if prev["sha256"] and curr["sha256"] and prev["sha256"] != curr["sha256"]:
+                        fim_event_type = "FIM_FILE_MODIFIED"
+                        changes.append("modified")
+                    elif prev["size"] != curr["size"]:
+                        fim_event_type = "FIM_FILE_MODIFIED"
+                        changes.append("modified")
+                    
+                    # Check permissions/owner
+                    if prev["permissions"] != curr["permissions"] or prev["owner_group"] != curr["owner_group"]:
+                        if not fim_event_type:
+                            fim_event_type = "FIM_PERMISSION_CHANGED"
+                        changes.append("permission")
+
+                    if fim_event_type:
+                        reasons.append(f"{', '.join(changes)}")
+                        baseline[full_path] = curr
+
+                # Dispatch ZMQ event if violation found
+                if fim_event_type:
+                    # Satisfy main telemetry required fields to pass controller schemas
+                    cpu = psutil.cpu_percent()
+                    memory = psutil.virtual_memory().percent
+                    process_count = len(psutil.pids())
+
+                    # Format the main reason string for rule engine mapping
+                    reason_msg = f"FIM {reasons[0].capitalize()}: {full_path}"
+
+                    event_payload = {
+                        "node": NODE_NAME,
+                        "cpu_usage": cpu,
+                        "memory_usage": memory,
+                        "process_count": process_count,
+                        "failed_login_count": 0,
+                        "privilege_escalation_attempts": 0,
+                        "event_type": "FIM_EVENT",
+                        "reasons": [reason_msg],
+                        "is_busy": False,
+                        "active_job_type": None,
+                        "fim_details": {
+                            "fim_event_type": fim_event_type,
+                            "file_path": full_path,
+                            "previous_state": prev,
+                            "current_state": curr if curr["exists"] else None
+                        }
+                    }
+                    sender.send_json(event_payload)
+                    print(f"[{NODE_NAME}] FIM ALERT TRANSMITTED: {reason_msg} ({fim_event_type})")
+
+        except Exception as e:
+            print(f"[{NODE_NAME}] FIM monitoring error: {e}")
+            time.sleep(2)
 
 # ==================================
 # MAIN
@@ -341,20 +608,17 @@ def telemetry_monitor():
 
 print(f"[{NODE_NAME}] Starting agent...")
 
-t1 = threading.Thread(
-    target=job_worker,
-    daemon=True,
-)
+load_fim_config()
 
-t2 = threading.Thread(
-    target=telemetry_monitor,
-    daemon=True,
-)
+t1 = threading.Thread(target=job_worker, daemon=True)
+t2 = threading.Thread(target=telemetry_monitor, daemon=True)
+t3 = threading.Thread(target=fim_monitor, daemon=True)
 
 t1.start()
 t2.start()
+t3.start()
 
-print(f"[{NODE_NAME}] " f"Agent running (job worker + telemetry)")
+print(f"[{NODE_NAME}] Agent running (job worker + telemetry + FIM)")
 
 while True:
     time.sleep(1)

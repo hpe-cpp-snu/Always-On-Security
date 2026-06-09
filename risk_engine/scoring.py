@@ -32,11 +32,26 @@ class WeightedScorer:
         current_score: float,
         multiplier: float = 1.0,
     ) -> tuple[float, float, str]:
+        import time
+        if not hasattr(self, 'fim_hold_until'):
+            self.fim_hold_until = {}
+
         if not matches:
+            # If we are under a FIM decay hold, skip decay
+            if node in self.fim_hold_until and time.time() < self.fim_hold_until[node]:
+                bucket = self._bucket(current_score)
+                return 0.0, round(current_score, 4), bucket
+
             # Risk decay for normal events (Sukhraj's feature)
             new_cumulative = max(0.0, current_score - self.decay_rate)
             bucket = self._bucket(new_cumulative)
             return 0.0, round(new_cumulative, 4), bucket
+
+        # Check if any matched rule is FIM-related
+        is_fim = any(rule_id.startswith("FIM_") for rule_id, _, _ in matches)
+        if is_fim:
+            # Set decay hold for 300 seconds (5 minutes)
+            self.fim_hold_until[node] = time.time() + 300
 
         ac = self.asset_criticality(node)
         # Take the highest-scoring rule to avoid double-counting
