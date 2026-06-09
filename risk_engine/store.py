@@ -300,11 +300,11 @@ class Store:
                 decision.bucket,
                 1 if decision.correlated else 0,
                 json.dumps([r[0] for r in decision.matched_rules]),
-            fim.get("file_path"),
-            fim.get("fim_event_type"),
-            fim.get("current_state", {}).get("sha256") if fim.get("current_state") else None,
-            fim.get("current_state", {}).get("file_size") if fim.get("current_state") else None,
-            fim.get("current_state", {}).get("permissions") if fim.get("current_state") else None,
+                fim.get("file_path"),
+                fim.get("fim_event_type"),
+                fim.get("current_state", {}).get("sha256") if fim.get("current_state") else None,
+                fim.get("current_state", {}).get("file_size") if fim.get("current_state") else None,
+                fim.get("current_state", {}).get("permissions") if fim.get("current_state") else None,
             ),
         )
 

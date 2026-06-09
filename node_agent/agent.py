@@ -582,6 +582,8 @@ def fim_monitor():
                         "cpu_usage": cpu,
                         "memory_usage": memory,
                         "process_count": process_count,
+                        "failed_login_count": 0,
+                        "privilege_escalation_attempts": 0,
                         "event_type": "FIM_EVENT",
                         "reasons": [reason_msg],
                         "is_busy": False,
